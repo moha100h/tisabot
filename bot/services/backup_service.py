@@ -2,25 +2,34 @@ import os, io, logging, tarfile
 from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot
-from config import BACKUP_DIR, BACKUP_GROUP_ID
+from config import BACKUP_DIR
 
 logger = logging.getLogger("backup")
 _scheduler: AsyncIOScheduler | None = None
 
 
+async def _get_backup_group(bot: Bot) -> int | None:
+    """خواندن BACKUP_GROUP_ID از تنظیمات DB"""
+    try:
+        from db.database import AsyncSessionLocal
+        from db.repository import get_setting
+        async with AsyncSessionLocal() as db:
+            val = await get_setting(db, "backup_group_id", "")
+        return int(val) if val.lstrip("-").isdigit() else None
+    except Exception:
+        return None
+
+
 async def create_backup(bot: Bot) -> str | None:
-    """ساخت فایل tar.gz از دیتابیس و ارسال به گروه بکاپ"""
     try:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         archive_path = os.path.join(BACKUP_DIR, f"backup_{ts}.tar.gz")
 
         with tarfile.open(archive_path, "w:gz") as tar:
-            # بکاپ از پوشه media
             media_dir = os.getenv("MEDIA_DIR", "/app/media")
             if os.path.exists(media_dir):
                 tar.add(media_dir, arcname="media")
 
-        # dump دیتابیس
         pg_host = os.getenv("POSTGRES_HOST", "postgres")
         pg_port = os.getenv("POSTGRES_PORT", "5432")
         pg_user = os.getenv("POSTGRES_USER", "tisa")
@@ -40,15 +49,20 @@ async def create_backup(bot: Bot) -> str | None:
         size_mb = os.path.getsize(archive_path) / (1024 * 1024)
         logger.info(f"Backup created: {archive_path} ({size_mb:.2f} MB)")
 
-        if BACKUP_GROUP_ID and bot:
+        backup_group = await _get_backup_group(bot)
+        if backup_group and bot:
             with open(archive_path, "rb") as f:
                 await bot.send_document(
-                    BACKUP_GROUP_ID,
+                    backup_group,
                     document=io.BufferedReader(f),
                     filename=f"backup_{ts}.tar.gz",
-                    caption=f"💾 <b>بکاپ خودکار</b>
-📅 {datetime.now().strftime('%Y/%m/%d %H:%M')}
-📦 {size_mb:.2f} MB"
+                    caption=(
+                        f"💾 <b>بکاپ خودکار</b>
+"
+                        f"📅 {datetime.now().strftime('%Y/%m/%d %H:%M')}
+"
+                        f"📦 {size_mb:.2f} MB"
+                    )
                 )
         return archive_path
     except Exception as e:
