@@ -4,7 +4,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from db.database import AsyncSessionLocal
-from db.repository import create_listing, add_listing_image, count_listing_images
+from db.repository import (create_listing, add_listing_image,
+    get_setting, update_listing)
 from db.models import ListingType, PropertyType
 from keyboards.main import listing_type_kb, property_type_kb, confirm_kb, skip_kb
 import logging
@@ -13,30 +14,29 @@ router = Router()
 logger = logging.getLogger("listing")
 
 MAX_IMAGES   = 3
-MAX_IMG_SIZE = 5 * 1024 * 1024  # 5 MB
+MAX_IMG_SIZE = 5 * 1024 * 1024
 
 
 class ListingFSM(StatesGroup):
-    type         = State()
-    prop_type    = State()
-    province     = State()
-    city         = State()
-    district     = State()
-    address      = State()
-    area         = State()
-    bedrooms     = State()
-    price        = State()
-    mortgage     = State()
-    rent         = State()
-    land_area    = State()
-    floors       = State()
-    facilities   = State()
-    description  = State()
-    images       = State()
-    confirm      = State()
+    type        = State()
+    prop_type   = State()
+    province    = State()
+    city        = State()
+    district    = State()
+    address     = State()
+    area        = State()
+    bedrooms    = State()
+    price       = State()
+    mortgage    = State()
+    rent        = State()
+    land_area   = State()
+    floors      = State()
+    facilities  = State()
+    description = State()
+    images      = State()
+    confirm     = State()
 
 
-# ── شروع ویزارد ───────────────────────────────────────────────
 @router.message(F.text == "🏠 ثبت آگهی")
 async def start_listing(msg: Message, state: FSMContext, db_user=None):
     if not db_user:
@@ -75,9 +75,7 @@ async def got_prop_type(cb: CallbackQuery, state: FSMContext):
 <i>مثال: تهران</i>")
 
 
-# ── مراحل متنی ────────────────────────────────────────────────
-async def _ask(msg: Message, state: FSMContext, next_state: State,
-               question: str, skip_cb: str | None = None):
+async def _ask(msg, state, next_state, question, skip_cb=None):
     await state.set_state(next_state)
     kb = skip_kb(skip_cb) if skip_cb else None
     await msg.answer(question, reply_markup=kb)
@@ -122,18 +120,16 @@ async def got_address(msg: Message, state: FSMContext):
     await _next_after_address(msg, state)
 
 
-async def _next_after_address(msg_or_cb, state: FSMContext):
+async def _next_after_address(m, state):
     data = await state.get_data()
-    lt = data.get("listing_type")
-    if lt == "partnership":
+    if data.get("listing_type") == "partnership":
         await state.set_state(ListingFSM.land_area)
-        await msg_or_cb.answer("📐 <b>مساحت زمین</b> (متر مربع) را وارد کنید:")
+        await m.answer("📐 <b>مساحت زمین</b> (متر مربع) را وارد کنید:")
     else:
         await state.set_state(ListingFSM.area)
-        await msg_or_cb.answer("📐 <b>متراژ</b> (متر مربع) را وارد کنید:")
+        await m.answer("📐 <b>متراژ</b> (متر مربع) را وارد کنید:")
 
 
-# ── مشارکت در ساخت ────────────────────────────────────────────
 @router.message(ListingFSM.land_area, F.text)
 async def got_land_area(msg: Message, state: FSMContext):
     if not msg.text.isdigit():
@@ -161,7 +157,6 @@ async def got_floors(msg: Message, state: FSMContext):
                "📝 <b>توضیحات</b> را وارد کنید:", skip_cb="skip_desc")
 
 
-# ── فروش / رهن‌اجاره ──────────────────────────────────────────
 @router.message(ListingFSM.area, F.text)
 async def got_area(msg: Message, state: FSMContext):
     if not msg.text.isdigit():
@@ -187,15 +182,16 @@ async def got_bedrooms(msg: Message, state: FSMContext):
     await _price_step(msg, state)
 
 
-async def _price_step(msg_or_cb, state: FSMContext):
+async def _price_step(m, state):
     data = await state.get_data()
     lt = data.get("listing_type")
     if lt == "sale":
         await state.set_state(ListingFSM.price)
-        await msg_or_cb.answer("💵 <b>قیمت کل</b> (تومان) را وارد کنید:")
-    elif lt == "rent":
+        await m.answer("💵 <b>قیمت کل</b> (تومان) را وارد کنید:")
+    else:
         await state.set_state(ListingFSM.mortgage)
-        await msg_or_cb.answer("🔑 <b>مبلغ رهن</b> (تومان) را وارد کنید:", reply_markup=skip_kb("skip_mortgage"))
+        await m.answer("🔑 <b>مبلغ رهن</b> (تومان) را وارد کنید:",
+                       reply_markup=skip_kb("skip_mortgage"))
 
 
 @router.message(ListingFSM.price, F.text)
@@ -206,9 +202,7 @@ async def got_price(msg: Message, state: FSMContext):
         return
     await state.update_data(price=int(val))
     await _ask(msg, state, ListingFSM.facilities,
-               "🏊 <b>امکانات</b> را وارد کنید:
-<i>مثال: پارکینگ، انباری، آسانسور</i>",
-               skip_cb="skip_facilities")
+               "🏊 <b>امکانات</b> را وارد کنید:", skip_cb="skip_facilities")
 
 
 @router.callback_query(ListingFSM.mortgage, F.data == "skip_mortgage")
@@ -273,18 +267,17 @@ async def got_description(msg: Message, state: FSMContext):
     await _ask_images(msg, state)
 
 
-async def _ask_images(msg_or_cb, state: FSMContext):
+async def _ask_images(m, state):
     await state.set_state(ListingFSM.images)
     await state.update_data(images=[])
     b = InlineKeyboardBuilder()
     b.button(text="⏭ بدون تصویر ثبت کن", callback_data="skip_images")
-    await msg_or_cb.answer(
+    await m.answer(
         f"📸 <b>تصاویر ملک</b>
 
+حداکثر {MAX_IMAGES} تصویر (هر تصویر حداکثر ۵ مگابایت)
 "
-        f"حداکثر {MAX_IMAGES} تصویر (هر تصویر حداکثر ۵ مگابایت)
-"
-        f"تصاویر را یکی‌یکی ارسال کنید یا رد کنید:",
+        "تصاویر را یکی‌یکی ارسال کنید یا رد کنید:",
         reply_markup=b.as_markup()
     )
 
@@ -295,7 +288,7 @@ async def got_image(msg: Message, state: FSMContext):
     images: list = data.get("images", [])
     photo: PhotoSize = msg.photo[-1]
     if photo.file_size and photo.file_size > MAX_IMG_SIZE:
-        await msg.answer(f"⚠️ حجم تصویر بیشتر از ۵ مگابایت است.")
+        await msg.answer("⚠️ حجم تصویر بیشتر از ۵ مگابایت است.")
         return
     images.append(photo.file_id)
     await state.update_data(images=images)
@@ -303,9 +296,10 @@ async def got_image(msg: Message, state: FSMContext):
     if remaining > 0:
         b = InlineKeyboardBuilder()
         b.button(text="✅ همین کافیه", callback_data="done_images")
-        await msg.answer(f"✅ تصویر {len(images)} دریافت شد. "
-                         f"می‌توانید {remaining} تصویر دیگر ارسال کنید.",
-                         reply_markup=b.as_markup())
+        await msg.answer(
+            f"✅ تصویر {len(images)} دریافت شد. می‌توانید {remaining} تصویر دیگر ارسال کنید.",
+            reply_markup=b.as_markup()
+        )
     else:
         await _show_confirm(msg, state)
 
@@ -315,7 +309,7 @@ async def finish_images(cb: CallbackQuery, state: FSMContext):
     await _show_confirm(cb.message, state)
 
 
-async def _show_confirm(msg_or_cb, state: FSMContext):
+async def _show_confirm(m, state):
     data = await state.get_data()
     TYPE_MAP = {"sale": "فروش", "rent": "رهن/اجاره", "partnership": "مشارکت"}
     PROP_MAP = {"apartment": "آپارتمان", "villa": "ویلا", "commercial": "تجاری",
@@ -327,18 +321,17 @@ async def _show_confirm(msg_or_cb, state: FSMContext):
         f"🏠 نوع ملک: {PROP_MAP.get(data.get('property_type',''), '')}",
         f"📍 موقعیت: {data.get('province','')} — {data.get('city','')}",
     ]
-    if data.get("district"):   lines.append(f"🏘 محله: {data['district']}")
-    if data.get("area"):       lines.append(f"📐 متراژ: {data['area']:,} متر")
-    if data.get("bedrooms"):   lines.append(f"🛏 اتاق: {data['bedrooms']}")
-    if data.get("price"):      lines.append(f"💵 قیمت: {data['price']:,} تومان")
-    if data.get("mortgage"):   lines.append(f"🔑 رهن: {data['mortgage']:,} تومان")
-    if data.get("rent"):       lines.append(f"🏠 اجاره: {data['rent']:,} تومان")
-    if data.get("facilities"): lines.append(f"🏊 امکانات: {data['facilities']}")
-    if data.get("description"):lines.append(f"📝 توضیحات: {data['description']}")
-    imgs = data.get("images", [])
-    lines.append(f"📸 تصاویر: {len(imgs)} عدد")
+    if data.get("district"):    lines.append(f"🏘 محله: {data['district']}")
+    if data.get("area"):        lines.append(f"📐 متراژ: {data['area']:,} متر")
+    if data.get("bedrooms"):    lines.append(f"🛏 اتاق: {data['bedrooms']}")
+    if data.get("price"):       lines.append(f"💵 قیمت: {data['price']:,} تومان")
+    if data.get("mortgage"):    lines.append(f"🔑 رهن: {data['mortgage']:,} تومان")
+    if data.get("rent"):        lines.append(f"🏠 اجاره: {data['rent']:,} تومان")
+    if data.get("facilities"):  lines.append(f"🏊 امکانات: {data['facilities']}")
+    if data.get("description"): lines.append(f"📝 توضیحات: {data['description']}")
+    lines.append(f"📸 تصاویر: {len(data.get('images', []))} عدد")
     await state.set_state(ListingFSM.confirm)
-    await msg_or_cb.answer("
+    await m.answer("
 ".join(lines), reply_markup=confirm_kb("submit"))
 
 
@@ -352,6 +345,7 @@ async def cancel_listing(cb: CallbackQuery, state: FSMContext):
 async def submit_listing(cb: CallbackQuery, state: FSMContext, db_user=None):
     data = await state.get_data()
     await state.clear()
+
     async with AsyncSessionLocal() as db:
         lst = await create_listing(
             db,
@@ -372,6 +366,9 @@ async def submit_listing(cb: CallbackQuery, state: FSMContext, db_user=None):
         )
         for i, fid in enumerate(data.get("images", [])):
             await add_listing_image(db, lst.id, fid, order=i)
+        # خواندن REVIEW_GROUP_ID از تنظیمات DB
+        review_group_raw = await get_setting(db, "review_group_id", "")
+        review_group_id = int(review_group_raw) if review_group_raw.lstrip("-").isdigit() else None
 
     await cb.message.edit_text(
         f"✅ <b>آگهی با موفقیت ثبت شد!</b>
@@ -383,13 +380,11 @@ async def submit_listing(cb: CallbackQuery, state: FSMContext, db_user=None):
     )
     logger.info(f"New listing {lst.code} by user {db_user.telegram_id}")
 
-    # ارسال به گروه بازبینی
-    from config import REVIEW_GROUP_ID
-    from keyboards.main import review_group_kb
-    if REVIEW_GROUP_ID:
+    if review_group_id:
         TYPE_MAP = {"sale": "فروش", "rent": "رهن/اجاره", "partnership": "مشارکت"}
         PROP_MAP = {"apartment": "آپارتمان", "villa": "ویلا", "commercial": "تجاری",
                     "land": "زمین", "office": "دفتر", "other": "سایر"}
+        from keyboards.main import review_group_kb
         review_text = (
             f"🔔 <b>آگهی جدید برای بررسی</b>
 
@@ -405,18 +400,12 @@ async def submit_listing(cb: CallbackQuery, state: FSMContext, db_user=None):
         try:
             images = data.get("images", [])
             if images:
-                sent = await cb.bot.send_photo(
-                    REVIEW_GROUP_ID, images[0],
-                    caption=review_text,
-                    reply_markup=review_group_kb(lst.id)
-                )
+                sent = await cb.bot.send_photo(review_group_id, images[0],
+                    caption=review_text, reply_markup=review_group_kb(lst.id))
             else:
-                sent = await cb.bot.send_message(
-                    REVIEW_GROUP_ID, review_text,
-                    reply_markup=review_group_kb(lst.id)
-                )
+                sent = await cb.bot.send_message(review_group_id, review_text,
+                    reply_markup=review_group_kb(lst.id))
             async with AsyncSessionLocal() as db:
-                from db.repository import update_listing
                 await update_listing(db, lst.id, review_msg_id=sent.message_id)
         except Exception as e:
             logger.warning(f"Could not send to review group: {e}")
