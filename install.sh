@@ -1,0 +1,157 @@
+#!/bin/bash
+# ============================================================
+# TisaBot — Real Estate Telegram Bot
+# Install / Update v1.0
+# Ubuntu 20.04 / 22.04 / 24.04 | Debian 11 / 12
+# ============================================================
+set -e
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+
+info()    { echo -e "${BLUE}[INFO]${NC} $1"; }
+success() { echo -e "${GREEN}[✓]${NC} $1"; }
+warn()    { echo -e "${YELLOW}[!]${NC} $1"; }
+error()   { echo -e "${RED}[✗]${NC} $1"; exit 1; }
+step()    { echo -e "\n${CYAN}${BOLD}══════════════════════════════════════${NC}"; \
+            echo -e "${CYAN}${BOLD}  $1${NC}"; \
+            echo -e "${CYAN}${BOLD}══════════════════════════════════════${NC}"; }
+
+INSTALL_DIR="/opt/tisabot"
+REPO_URL="https://github.com/moha100h/tisabot.git"
+
+echo -e "\n${CYAN}${BOLD}"
+echo "  ████████╗██╗███████╗ █████╗ ██████╗  ██████╗ ████████╗"
+echo "     ██╔══╝██║██╔════╝██╔══██╗██╔══██╗██╔═══██╗╚══██╔══╝"
+echo "     ██║   ██║███████╗███████║██████╔╝██║   ██║   ██║   "
+echo "     ██║   ██║╚════██║██╔══██║██╔══██╗██║   ██║   ██║   "
+echo "     ██║   ██║███████║██║  ██║██████╔╝╚██████╔╝   ██║   "
+echo "     ╚═╝   ╚═╝╚══════╝╚═╝  ╚═╝╚═════╝  ╚═════╝    ╚═╝  "
+echo -e "${NC}"
+echo -e "  ${BOLD}ربات مدیریت املاک تیسا${NC}"
+echo -e "  ${BLUE}https://github.com/moha100h/tisabot${NC}\n"
+
+[[ $EUID -ne 0 ]] && error "با root اجرا کنید: sudo bash install.sh"
+
+# ── 1. پیش‌نیازها ─────────────────────────────────────────────
+step "1/5 — پیش‌نیازها"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+for pkg in curl git ca-certificates gnupg openssl; do
+    command -v "$pkg" &>/dev/null || apt-get install -y "$pkg" -qq
+done
+success "پیش‌نیازها OK"
+
+# ── 2. Docker ─────────────────────────────────────────────────
+step "2/5 — Docker"
+if ! command -v docker &>/dev/null; then
+    info "نصب Docker..."
+    curl -fsSL https://get.docker.com | sh
+    systemctl enable docker --quiet
+    systemctl start docker
+    success "Docker نصب شد: $(docker --version)"
+else
+    success "Docker: $(docker --version)"
+fi
+
+if ! docker compose version &>/dev/null 2>&1; then
+    apt-get install -y docker-compose-plugin -qq 2>/dev/null || true
+fi
+success "Docker Compose: $(docker compose version 2>/dev/null)"
+
+# ── 3. سورس کد ───────────────────────────────────────────────
+step "3/5 — سورس کد"
+IS_UPDATE=0
+if [ -d "$INSTALL_DIR/.git" ]; then
+    IS_UPDATE=1
+    info "آپدیت از GitHub..."
+    cd "$INSTALL_DIR"
+    git fetch origin --quiet
+    git reset --hard origin/main --quiet
+    success "آپدیت شد: $(git log --oneline -1)"
+else
+    info "Clone از GitHub..."
+    git clone "$REPO_URL" "$INSTALL_DIR" --quiet
+    success "Clone شد"
+fi
+cd "$INSTALL_DIR"
+
+# ── 4. تنظیم .env ─────────────────────────────────────────────
+step "4/5 — تنظیم .env"
+if [ ! -f ".env" ]; then
+    cp .env.example .env
+
+    echo ""
+    warn "فقط دو مورد زیر لازم است:"
+    echo ""
+
+    while true; do
+        read -rp "  🤖 BOT_TOKEN (از @BotFather): " BOT_TOKEN
+        [[ -n "$BOT_TOKEN" ]] && break
+        warn "BOT_TOKEN نمی‌تواند خالی باشد"
+    done
+
+    while true; do
+        read -rp "  👤 ADMIN_ID (آیدی عددی تلگرام): " ADMIN_ID
+        [[ "$ADMIN_ID" =~ ^[0-9]+$ ]] && break
+        warn "ADMIN_ID باید عدد باشد"
+    done
+
+    PG_PASS=$(openssl rand -hex 24)
+
+    sed -i "s|your_bot_token_here|${BOT_TOKEN}|"       .env
+    sed -i "s|your_telegram_admin_id|${ADMIN_ID}|"     .env
+    sed -i "s|change_this_strong_password|${PG_PASS}|" .env
+
+    success ".env تنظیم شد"
+else
+    warn ".env موجود است — تغییر نمی‌دهیم"
+    info "برای ویرایش: nano $INSTALL_DIR/.env"
+fi
+
+# ── 5. Build و راه‌اندازی ─────────────────────────────────────
+step "5/5 — Build و راه‌اندازی"
+docker compose down --remove-orphans 2>/dev/null || true
+
+if [ "$IS_UPDATE" -eq 0 ]; then
+    info "پاک کردن volume های قدیمی..."
+    docker compose down -v 2>/dev/null || true
+fi
+
+info "Build image (ممکن است چند دقیقه طول بکشد)..."
+docker compose build --no-cache bot
+info "راه‌اندازی سرویس‌ها..."
+docker compose up -d
+
+info "صبر برای PostgreSQL..."
+RETRIES=0
+until docker compose exec -T postgres pg_isready -U tisa -d tisabot &>/dev/null; do
+    RETRIES=$((RETRIES+1))
+    [ $RETRIES -ge 30 ] && error "PostgreSQL در ۶۰ ثانیه راه‌اندازی نشد"
+    sleep 2
+done
+success "PostgreSQL آماده"
+
+sleep 5
+echo ""
+docker compose ps
+echo ""
+info "آخرین لاگ‌ها:"
+docker logs tisa_bot --tail=20 2>&1 || true
+echo ""
+
+echo -e "\n${GREEN}${BOLD}╔══════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}${BOLD}║   ✅  نصب/آپدیت با موفقیت انجام شد!     ║${NC}"
+echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════╝${NC}\n"
+
+echo -e "${CYAN}${BOLD}  دستورات مفید:${NC}"
+echo -e "  ${BOLD}docker compose logs -f bot${NC}     # لاگ زنده"
+echo -e "  ${BOLD}docker compose restart bot${NC}     # ری‌استارت"
+echo -e "  ${BOLD}docker compose ps${NC}              # وضعیت"
+echo -e "  ${BOLD}bash $0${NC}                        # آپدیت"
+echo ""
+echo -e "${YELLOW}  📁 مسیرها:${NC}"
+echo -e "  تنظیمات: $INSTALL_DIR/.env"
+echo -e "  مدیا:    /app/media/"
+echo -e "  بکاپ‌ها: /app/backups/"
+echo ""
