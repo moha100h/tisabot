@@ -25,27 +25,28 @@ class SearchFSM(StatesGroup):
 
 def _lt_kb():
     b = InlineKeyboardBuilder()
-    b.button(text="فروش",      callback_data="slt:sale")
-    b.button(text="رهن/اجاره", callback_data="slt:rent")
-    b.button(text="مشارکت",    callback_data="slt:partnership")
-    b.button(text="همه",       callback_data="slt:all")
+    b.button(text="🏷 فروش",      callback_data="slt:sale")
+    b.button(text="🏠 رهن/اجاره", callback_data="slt:rent")
+    b.button(text="🤝 مشارکت",    callback_data="slt:partnership")
+    b.button(text="📋 همه",        callback_data="slt:all")
     b.adjust(2)
     return b.as_markup()
 
 
 def _pt_kb():
     b = InlineKeyboardBuilder()
-    b.button(text="آپارتمان", callback_data="spt:apartment")
-    b.button(text="ویلا",     callback_data="spt:villa")
-    b.button(text="تجاری",    callback_data="spt:commercial")
-    b.button(text="زمین",     callback_data="spt:land")
-    b.button(text="دفتر",     callback_data="spt:office")
-    b.button(text="همه",      callback_data="spt:all")
+    b.button(text="🏢 آپارتمان", callback_data="spt:apartment")
+    b.button(text="🏡 ویلا",     callback_data="spt:villa")
+    b.button(text="🏪 تجاری",    callback_data="spt:commercial")
+    b.button(text="🌿 زمین",     callback_data="spt:land")
+    b.button(text="🏬 دفتر",     callback_data="spt:office")
+    b.button(text="📋 همه",      callback_data="spt:all")
     b.adjust(3)
     return b.as_markup()
 
 
-@router.message(F.text == "🔍 جستجو")
+# هر دو متن دکمه رو پشتیبانی می‌کنیم
+@router.message(F.text.in_({"🔍 جستجوی ملک", "🔍 جستجو"}))
 async def start_search(msg: Message, state: FSMContext):
     await state.clear()
     await state.set_state(SearchFSM.listing_type)
@@ -100,6 +101,24 @@ async def got_city(msg: Message, state: FSMContext):
     await _do_search(msg, state)
 
 
+def _public_card(lst) -> str:
+    """کارت عمومی — بدون آدرس و شماره تماس"""
+    lines = ["🏷 <b>" + lst.code + "</b>"]
+    lines.append("📌 " + TYPE_MAP.get(lst.listing_type.value, "") + " — " + PROP_MAP.get(lst.property_type.value, ""))
+    lines.append("📍 " + lst.province + " — " + lst.city)
+    if lst.district:   lines.append("🏘 " + lst.district)
+    if lst.area:       lines.append("📐 " + str(lst.area) + " متر")
+    if lst.bedrooms:   lines.append("🛏 " + str(lst.bedrooms) + " اتاق")
+    if lst.price:      lines.append("💵 " + f"{lst.price:,}" + " تومان")
+    if lst.mortgage:   lines.append("🔑 رهن: " + f"{lst.mortgage:,}" + " تومان")
+    if lst.rent:       lines.append("🏠 اجاره: " + f"{lst.rent:,}" + " تومان")
+    if lst.facilities: lines.append("🏊 " + lst.facilities)
+    if lst.description:lines.append("📝 " + lst.description)
+    lines.append("")
+    lines.append("📞 برای اطلاعات بیشتر با مشاور تماس بگیرید")
+    return "\n".join(lines)
+
+
 async def _do_search(m, state):
     data = await state.get_data()
     await state.clear()
@@ -113,14 +132,7 @@ async def _do_search(m, state):
         return
     await m.answer("✅ <b>" + str(len(results)) + " آگهی یافت شد:</b>")
     for lst in results:
-        lines = ["🏷 <b>" + lst.code + "</b>"]
-        lines.append("📌 " + TYPE_MAP.get(lst.listing_type.value, "") + " — " + PROP_MAP.get(lst.property_type.value, ""))
-        lines.append("📍 " + lst.province + " — " + lst.city)
-        if lst.area:     lines.append("📐 " + str(lst.area) + " متر")
-        if lst.price:    lines.append("💵 " + f"{lst.price:,}" + " تومان")
-        if lst.mortgage: lines.append("🔑 رهن: " + f"{lst.mortgage:,}" + " تومان")
-        if lst.rent:     lines.append("🏠 اجاره: " + f"{lst.rent:,}" + " تومان")
-        text = "\n".join(lines)
+        text = _public_card(lst)
         if lst.images:
             await m.answer_photo(lst.images[0].file_id, caption=text)
         else:
