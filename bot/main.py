@@ -39,6 +39,29 @@ async def set_commands(bot: Bot) -> None:
             pass
 
 
+async def _ensure_admin() -> None:
+    try:
+        from db.database import AsyncSessionLocal
+        from db.repository import get_user, create_user, update_user
+        from db.models import UserRole
+        async with AsyncSessionLocal() as db:
+            admin = await get_user(db, ADMIN_ID)
+            if not admin:
+                admin = await create_user(
+                    db,
+                    telegram_id=ADMIN_ID,
+                    full_name="Admin",
+                    phone="0000000000",
+                    username=None
+                )
+                logger.info("Admin %s created in DB.", ADMIN_ID)
+            if admin.role != UserRole.SUPER:
+                await update_user(db, ADMIN_ID, role=UserRole.SUPER)
+                logger.info("Admin %s promoted to SUPER.", ADMIN_ID)
+    except Exception as e:
+        logger.warning("_ensure_admin failed: %s", e)
+
+
 async def _get_backup_interval() -> int:
     try:
         from db.database import AsyncSessionLocal
@@ -58,11 +81,9 @@ async def main() -> None:
     )
     dp = Dispatcher(storage=storage)
 
-    # ── Middlewares ───────────────────────────────────────────
     dp.message.middleware(AuthMiddleware())
     dp.callback_query.middleware(AuthMiddleware())
 
-    # ── Routers ───────────────────────────────────────────────
     dp.include_router(register_router)
     dp.include_router(backup_router)
     dp.include_router(admin_router)
@@ -70,35 +91,19 @@ async def main() -> None:
     dp.include_router(search_router)
     dp.include_router(user_router)
 
-    # ── Init DB ───────────────────────────────────────────────
     await init_db()
     await set_commands(bot)
+    await _ensure_admin()
 
-    # ── Backup Scheduler ──────────────────────────────────────
     try:
-        from services.backup_service import start_scheduler
+        from services.backup import start_scheduler
         interval = await _get_backup_interval()
         start_scheduler(bot, interval_hours=interval)
-        logger.info(f"Backup scheduler started (every {interval}h).")
+        logger.info("Backup scheduler started (every %dh).", interval)
     except Exception as e:
-        logger.warning(f"Backup scheduler not started: {e}")
+        logger.warning("Backup scheduler not started: %s", e)
 
-    # ── اطمینان از سوپر ادمین ────────────────────────────────
-    try:
-        from db.database import AsyncSessionLocal
-        from db.repository import get_user, create_user, update_user
-        from db.models import UserRole
-        async with AsyncSessionLocal() as db:
-            admin = await get_user(db, ADMIN_ID)
-            if not admin:
-                logger.warning(f"Admin {ADMIN_ID} not registered yet — will be set on first /start")
-            elif admin.role != UserRole.SUPER:
-                await update_user(db, ADMIN_ID, role=UserRole.SUPER)
-                logger.info(f"Admin {ADMIN_ID} promoted to SUPER.")
-    except Exception as e:
-        logger.warning(f"Admin role check failed: {e}")
-
-    logger.info(f"TisaBot started. ADMIN_ID={ADMIN_ID}")
+    logger.info("TisaBot started. ADMIN_ID=%s", ADMIN_ID)
     await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
 
