@@ -1,4 +1,4 @@
-import os, io, tarfile, logging
+import os, tarfile, logging
 from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot
@@ -8,61 +8,74 @@ from db.repository import get_setting
 logger = logging.getLogger("backup")
 _scheduler: AsyncIOScheduler | None = None
 
+BACKUP_DIR = os.getenv("BACKUP_DIR", "/app/backups")
+
 
 async def create_backup() -> str:
-    """ساخت فایل tar.gz از پوشه‌های media و data"""
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_dir = os.getenv("BACKUP_DIR", "/app/backups")
-    os.makedirs(backup_dir, exist_ok=True)
-    out_path = os.path.join(backup_dir, f"backup_{ts}.tar.gz")
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    archive = os.path.join(BACKUP_DIR, "backup_" + ts + ".tar.gz")
 
-    dirs_to_backup = [
-        os.getenv("MEDIA_DIR", "/app/media"),
-    ]
-    with tarfile.open(out_path, "w:gz") as tar:
-        for d in dirs_to_backup:
-            if os.path.exists(d):
-                tar.add(d, arcname=os.path.basename(d))
-    logger.info(f"Backup created: {out_path} ({os.path.getsize(out_path)} bytes)")
-    return out_path
+    with tarfile.open(archive, "w:gz") as tar:
+        media_dir = os.getenv("MEDIA_DIR", "/app/media")
+        if os.path.exists(media_dir):
+            tar.add(media_dir, arcname="media")
+
+    pg_host = os.getenv("POSTGRES_HOST", "postgres")
+    pg_port = os.getenv("POSTGRES_PORT", "5432")
+    pg_user = os.getenv("POSTGRES_USER", "tisa")
+    pg_pass = os.getenv("POSTGRES_PASSWORD", "")
+    pg_db   = os.getenv("POSTGRES_DB", "tisabot")
+    dump    = os.path.join(BACKUP_DIR, "db_" + ts + ".sql")
+
+    ret = os.system(
+        "PGPASSWORD='" + pg_pass + "' pg_dump"
+        " -h " + pg_host + " -p " + pg_port +
+        " -U " + pg_user + " " + pg_db +
+        " > " + dump + " 2>/dev/null"
+    )
+    if ret == 0 and os.path.exists(dump):
+        with tarfile.open(archive, "a:gz") as tar:
+            tar.add(dump, arcname="db_" + ts + ".sql")
+        os.remove(dump)
+
+    size_mb = os.path.getsize(archive) / (1024 * 1024)
+    logger.info("Backup created: %s (%.2f MB)", archive, size_mb)
+    return archive
 
 
 async def send_backup(bot: Bot) -> None:
     async with AsyncSessionLocal() as db:
-        group_id_str = await get_setting(db, "backup_group_id", "")
-
-    from config import BACKUP_GROUP_ID
-    group_id = int(group_id_str) if group_id_str.lstrip("-").isdigit() else BACKUP_GROUP_ID
-    if not group_id:
-        logger.warning("BACKUP_GROUP_ID not set — skipping backup send.")
+        gid_str = await get_setting(db, "backup_group_id", "")
+    gid = int(gid_str) if gid_str.lstrip("-").isdigit() else None
+    if not gid:
+        logger.warning("backup_group_id not set — skip send")
         return
-
     try:
-        path = await create_backup()
+        path    = await create_backup()
         size_mb = os.path.getsize(path) / (1024 * 1024)
+        ts_str  = datetime.now().strftime("%Y/%m/%d %H:%M")
         caption = (
-            f"💾 <b>بکاپ خودکار</b>
-"
-            f"📅 {datetime.now().strftime('%Y/%m/%d %H:%M')}
-"
-            f"📦 حجم: {size_mb:.2f} MB"
+            "💾 <b>بکاپ خودکار</b>\n"
+            "📅 " + ts_str + "\n"
+            "📦 " + f"{size_mb:.2f}" + " MB"
         )
         with open(path, "rb") as f:
-            await bot.send_document(group_id, f, caption=caption)
-        logger.info(f"Backup sent to group {group_id}")
+            await bot.send_document(gid, f, caption=caption)
+        logger.info("Backup sent to group %s", gid)
     except Exception as e:
-        logger.error(f"Backup failed: {e}")
+        logger.error("Backup send failed: %s", e)
 
 
-def start_scheduler(bot: Bot) -> None:
+def start_scheduler(bot: Bot, interval_hours: int = 6) -> None:
     global _scheduler
     if _scheduler and _scheduler.running:
         return
     _scheduler = AsyncIOScheduler()
-    _scheduler.add_job(send_backup, "interval", hours=6, args=[bot],
-                       id="auto_backup", replace_existing=True)
+    _scheduler.add_job(send_backup, "interval", hours=interval_hours,
+                       args=[bot], id="auto_backup", replace_existing=True)
     _scheduler.start()
-    logger.info("Backup scheduler started (every 6h).")
+    logger.info("Backup scheduler started (every %dh)", interval_hours)
 
 
 def stop_scheduler() -> None:
