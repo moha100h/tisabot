@@ -1,4 +1,5 @@
-import asyncio, logging
+import asyncio
+import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -8,7 +9,6 @@ from aiogram.types import BotCommand, BotCommandScopeDefault, BotCommandScopeCha
 from config import BOT_TOKEN, ADMIN_ID, REDIS_URL
 from db.database import init_db
 from middlewares.auth import AuthMiddleware
-
 from handlers.register import router as register_router
 from handlers.user     import router as user_router
 from handlers.listing  import router as listing_router
@@ -41,9 +41,11 @@ async def set_commands(bot: Bot) -> None:
 
 async def main() -> None:
     storage = RedisStorage.from_url(REDIS_URL)
-    bot = Bot(token=BOT_TOKEN,
-              default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    dp  = Dispatcher(storage=storage)
+    bot = Bot(
+        token=BOT_TOKEN,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    )
+    dp = Dispatcher(storage=storage)
 
     # ── Middlewares ───────────────────────────────────────────
     dp.message.middleware(AuthMiddleware())
@@ -51,21 +53,21 @@ async def main() -> None:
 
     # ── Routers (ترتیب مهم است) ───────────────────────────────
     dp.include_router(register_router)   # /start + FSM ثبت‌نام
-    dp.include_router(admin_router)      # /admin + پنل ادمین
     dp.include_router(backup_router)     # 💾 بکاپ
+    dp.include_router(admin_router)      # /admin + پنل ادمین
     dp.include_router(listing_router)    # 🏠 ثبت آگهی
     dp.include_router(search_router)     # 🔍 جستجو
-    dp.include_router(user_router)       # بقیه منوی کاربر
+    dp.include_router(user_router)       # سایر دکمه‌های کاربری
 
     # ── Init DB ───────────────────────────────────────────────
     await init_db()
     await set_commands(bot)
 
-    # ── Backup scheduler ──────────────────────────────────────
+    # ── Backup Scheduler ──────────────────────────────────────
     try:
-        from services.backup import start_scheduler
-        start_scheduler(bot)
-        logger.info("Backup scheduler started.")
+        from services.backup_service import start_scheduler
+        start_scheduler(bot, interval_hours=6)
+        logger.info("Backup scheduler started (every 6h).")
     except Exception as e:
         logger.warning(f"Backup scheduler not started: {e}")
 
