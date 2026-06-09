@@ -17,15 +17,10 @@ POSTGRES_DB: str = os.getenv("POSTGRES_DB", "tisabot")
 
 REDIS_URL: str = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
-def _int_env(key: str) -> int | None:
-    v = os.getenv(key, "")
-    return int(v) if v.lstrip("-").isdigit() else None
-
-REVIEW_GROUP_ID: int | None = _int_env("REVIEW_GROUP_ID")
-BACKUP_GROUP_ID: int | None = _int_env("BACKUP_GROUP_ID")
-
-MEDIA_DIR: str  = os.getenv("MEDIA_DIR",  "/app/media")
+MEDIA_DIR:  str = os.getenv("MEDIA_DIR",  "/app/media")
 BACKUP_DIR: str = os.getenv("BACKUP_DIR", "/app/backups")
 
 for _d in [MEDIA_DIR, BACKUP_DIR]:
     os.makedirs(_d, exist_ok=True)
+
+# همه تنظیمات دیگر (REVIEW_GROUP_ID، BACKUP_GROUP_ID، ...) از DB خوانده می‌شوند
