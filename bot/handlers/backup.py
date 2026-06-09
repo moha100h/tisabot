@@ -1,14 +1,13 @@
 from aiogram import Router, F
 from aiogram.types import Message
 from db.models import UserRole
-from services.backup_service import create_backup
-import logging
+import logging, os
 
 router = Router()
 logger = logging.getLogger("backup_handler")
 
 
-def _is_admin(db_user) -> bool:
+def _is_admin(db_user):
     return db_user and db_user.role in (UserRole.ADMIN, UserRole.SUPER)
 
 
@@ -17,15 +16,16 @@ async def manual_backup(msg: Message, db_user=None):
     if not _is_admin(db_user):
         await msg.answer("⛔️ دسترسی ندارید.")
         return
-    wait_msg = await msg.answer("⏳ در حال ساخت بکاپ...")
-    path = await create_backup(msg.bot)
-    await wait_msg.delete()
-    if path:
-        import os
+    wait = await msg.answer("⏳ در حال ساخت بکاپ...")
+    try:
+        from services.backup import create_backup, send_backup
+        path = await create_backup()
         size_mb = os.path.getsize(path) / (1024 * 1024)
-        await msg.answer(f"✅ بکاپ ساخته شد.
-📦 حجم: {size_mb:.2f} MB")
+        await wait.delete()
         with open(path, "rb") as f:
-            await msg.answer_document(f, filename=os.path.basename(path))
-    else:
-        await msg.answer("❌ خطا در ساخت بکاپ. لاگ‌ها را بررسی کنید.")
+            await msg.answer_document(f, caption="✅ بکاپ آماده شد — " + f"{size_mb:.2f}" + " MB")
+        await send_backup(msg.bot)
+    except Exception as e:
+        logger.error("backup error: %s", e)
+        await wait.delete()
+        await msg.answer("❌ خطا در ساخت بکاپ.")
