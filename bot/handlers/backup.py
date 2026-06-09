@@ -1,31 +1,28 @@
 from aiogram import Router, F
 from aiogram.types import Message
+from db.database import AsyncSessionLocal
+from db.repository import get_setting
 from db.models import UserRole
-from services.backup import create_backup, send_backup
-import logging, os
+import logging
 
 router = Router()
 logger = logging.getLogger("backup_handler")
 
 
-def _is_admin(db_user):
+def _is_admin(db_user) -> bool:
     return db_user and db_user.role in (UserRole.ADMIN, UserRole.SUPER)
 
 
 @router.message(F.text == "💾 بکاپ")
 async def manual_backup(msg: Message, db_user=None):
     if not _is_admin(db_user):
-        await msg.answer("⛔️ دسترسی ندارید.")
+        await msg.answer("⛔ دسترسی ندارید.")
         return
-    wait = await msg.answer("⏳ در حال ساخت بکاپ...")
+    await msg.answer("⏳ در حال ساخت بکاپ...")
     try:
-        path = await create_backup()
-        size_mb = os.path.getsize(path) / (1024 * 1024)
-        await wait.delete()
-        with open(path, "rb") as f:
-            await msg.answer_document(f, caption="✅ بکاپ آماده شد\n📦 حجم: " + f"{size_mb:.2f}" + " MB")
+        from services.backup import send_backup
         await send_backup(msg.bot)
+        await msg.answer("✅ بکاپ ساخته و ارسال شد.")
     except Exception as e:
-        logger.error("Manual backup error: %s", e)
-        await wait.delete()
-        await msg.answer("❌ خطا در ساخت بکاپ.")
+        await msg.answer("❌ خطا: " + str(e))
+        logger.error("manual backup: %s", e)
