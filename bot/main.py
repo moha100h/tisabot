@@ -1,11 +1,10 @@
-import asyncio
-import logging
+import asyncio, logging, sys, os
+sys.path.insert(0, os.path.dirname(__file__))
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import BotCommand, BotCommandScopeDefault, BotCommandScopeChat
-
 from config import BOT_TOKEN, ADMIN_ID, REDIS_URL
 from db.database import init_db
 from middlewares.auth import AuthMiddleware
@@ -48,11 +47,8 @@ async def _ensure_admin() -> None:
             admin = await get_user(db, ADMIN_ID)
             if not admin:
                 admin = await create_user(
-                    db,
-                    telegram_id=ADMIN_ID,
-                    full_name="Admin",
-                    phone="0000000000",
-                    username=None
+                    db, telegram_id=ADMIN_ID,
+                    full_name="Admin", phone="0000000000", username=None
                 )
                 logger.info("Admin %s created in DB.", ADMIN_ID)
             if admin.role != UserRole.SUPER:
@@ -80,21 +76,17 @@ async def main() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
     dp = Dispatcher(storage=storage)
-
     dp.message.middleware(AuthMiddleware())
     dp.callback_query.middleware(AuthMiddleware())
-
     dp.include_router(register_router)
     dp.include_router(backup_router)
     dp.include_router(admin_router)
     dp.include_router(listing_router)
     dp.include_router(search_router)
     dp.include_router(user_router)
-
     await init_db()
     await set_commands(bot)
     await _ensure_admin()
-
     try:
         from services.backup import start_scheduler
         interval = await _get_backup_interval()
@@ -102,7 +94,6 @@ async def main() -> None:
         logger.info("Backup scheduler started (every %dh).", interval)
     except Exception as e:
         logger.warning("Backup scheduler not started: %s", e)
-
     logger.info("TisaBot started. ADMIN_ID=%s", ADMIN_ID)
     await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
