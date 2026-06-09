@@ -26,7 +26,7 @@ echo "     ██╔══╝██║██╔════╝██╔══█
 echo "     ██║   ██║███████╗███████║██████╔╝██║   ██║   ██║   "
 echo "     ██║   ██║╚════██║██╔══██║██╔══██╗██║   ██║   ██║   "
 echo "     ██║   ██║███████║██║  ██║██████╔╝╚██████╔╝   ██║   "
-echo "     ╚═╝   ╚═╝╚══════╝╚═╝  ╚═╝╚═════╝  ╚═════╝    ╚═╝  "
+echo "     ╚═╝   ╚═╝╚══════╝╚═╝  ╚═╝╚═════╝  ╚═════╝    ╚═╝   "
 echo -e "${NC}"
 echo -e "  ${BOLD}ربات مدیریت املاک تیسا${NC}"
 echo -e "  ${BLUE}https://github.com/moha100h/tisabot${NC}\n"
@@ -55,11 +55,20 @@ else
 fi
 
 if ! docker compose version &>/dev/null 2>&1; then
+    info "نصب Docker Compose plugin..."
     apt-get install -y docker-compose-plugin -qq 2>/dev/null || true
+    if ! docker compose version &>/dev/null 2>&1; then
+        COMPOSE_VER=$(curl -fsSL https://api.github.com/repos/docker/compose/releases/latest \
+            | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')
+        curl -fsSL "https://github.com/docker/compose/releases/download/v${COMPOSE_VER}/docker-compose-linux-x86_64" \
+            -o /usr/local/bin/docker-compose
+        chmod +x /usr/local/bin/docker-compose
+        ln -sf /usr/local/bin/docker-compose /usr/lib/docker/cli-plugins/docker-compose 2>/dev/null || true
+    fi
 fi
-success "Docker Compose: $(docker compose version 2>/dev/null)"
+success "Docker Compose: $(docker compose version 2>/dev/null || docker-compose version)"
 
-# ── 3. سورس کد ───────────────────────────────────────────────
+# ── 3. سورس کد ────────────────────────────────────────────────
 step "3/5 — سورس کد"
 IS_UPDATE=0
 if [ -d "$INSTALL_DIR/.git" ]; then
@@ -80,7 +89,6 @@ cd "$INSTALL_DIR"
 step "4/5 — تنظیم .env"
 if [ ! -f ".env" ]; then
     cp .env.example .env
-
     echo ""
     warn "فقط دو مورد زیر لازم است:"
     echo ""
@@ -140,10 +148,9 @@ info "آخرین لاگ‌ها:"
 docker logs tisa_bot --tail=20 2>&1 || true
 echo ""
 
-echo -e "\n${GREEN}${BOLD}╔══════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}${BOLD}║   ✅  نصب/آپدیت با موفقیت انجام شد!     ║${NC}"
-echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════╝${NC}\n"
-
+echo -e "\n${GREEN}${BOLD}╔══════════════════════════════════════╗${NC}"
+echo -e "${GREEN}${BOLD}║   ✅  نصب با موفقیت انجام شد!        ║${NC}"
+echo -e "${GREEN}${BOLD}╚══════════════════════════════════════╝${NC}\n"
 echo -e "${CYAN}${BOLD}  دستورات مفید:${NC}"
 echo -e "  ${BOLD}docker compose logs -f bot${NC}     # لاگ زنده"
 echo -e "  ${BOLD}docker compose restart bot${NC}     # ری‌استارت"
