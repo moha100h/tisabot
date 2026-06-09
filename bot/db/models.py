@@ -56,36 +56,37 @@ class User(Base):
     is_blocked  : Mapped[bool]     = mapped_column(Boolean, default=False)
     created_at  : Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
-    listings    : Mapped[list["Listing"]] = relationship(back_populates="owner",
-                                                          cascade="all, delete-orphan")
+    listings : Mapped[list["Listing"]] = relationship(back_populates="owner",
+                                                       cascade="all, delete-orphan")
 
 
 class Listing(Base):
     __tablename__ = "listings"
 
-    id              : Mapped[int]           = mapped_column(Integer, primary_key=True)
-    code            : Mapped[str]           = mapped_column(String(16), default=_gen_code, unique=True)
-    owner_id        : Mapped[int]           = mapped_column(BigInteger, ForeignKey("users.telegram_id"))
-    listing_type    : Mapped[ListingType]   = mapped_column(Enum(ListingType))
-    property_type   : Mapped[PropertyType]  = mapped_column(Enum(PropertyType))
-    province        : Mapped[str]           = mapped_column(String(64))
-    city            : Mapped[str]           = mapped_column(String(64))
-    district        : Mapped[str|None]      = mapped_column(String(64),  nullable=True)
-    address         : Mapped[str|None]      = mapped_column(String(256), nullable=True)
-    area            : Mapped[int|None]      = mapped_column(Integer, nullable=True)
-    bedrooms        : Mapped[int|None]      = mapped_column(Integer, nullable=True)
-    price           : Mapped[int|None]      = mapped_column(BigInteger, nullable=True)
-    mortgage        : Mapped[int|None]      = mapped_column(BigInteger, nullable=True)
-    rent            : Mapped[int|None]      = mapped_column(BigInteger, nullable=True)
-    facilities      : Mapped[str|None]      = mapped_column(Text, nullable=True)
-    description     : Mapped[str|None]      = mapped_column(Text, nullable=True)
-    status          : Mapped[ListingStatus] = mapped_column(Enum(ListingStatus),
-                                                             default=ListingStatus.PENDING)
-    rejection_reason: Mapped[str|None]      = mapped_column(Text, nullable=True)
-    review_msg_id   : Mapped[int|None]      = mapped_column(Integer, nullable=True)
-    created_at      : Mapped[datetime]      = mapped_column(DateTime, server_default=func.now())
+    id               : Mapped[int]           = mapped_column(Integer, primary_key=True)
+    code             : Mapped[str]           = mapped_column(String(16), default=_gen_code, unique=True)
+    owner_id         : Mapped[int]           = mapped_column(BigInteger, ForeignKey("users.telegram_id"))
+    listing_type     : Mapped[ListingType]   = mapped_column(Enum(ListingType))
+    property_type    : Mapped[PropertyType]  = mapped_column(Enum(PropertyType))
+    province         : Mapped[str]           = mapped_column(String(64))
+    city             : Mapped[str]           = mapped_column(String(64))
+    district         : Mapped[str|None]      = mapped_column(String(64),  nullable=True)
+    address          : Mapped[str|None]      = mapped_column(String(512), nullable=True)
+    contact_phone    : Mapped[str|None]      = mapped_column(String(20),  nullable=True)
+    area             : Mapped[int|None]      = mapped_column(Integer, nullable=True)
+    bedrooms         : Mapped[int|None]      = mapped_column(Integer, nullable=True)
+    price            : Mapped[int|None]      = mapped_column(BigInteger, nullable=True)
+    mortgage         : Mapped[int|None]      = mapped_column(BigInteger, nullable=True)
+    rent             : Mapped[int|None]      = mapped_column(BigInteger, nullable=True)
+    facilities       : Mapped[str|None]      = mapped_column(Text, nullable=True)
+    description      : Mapped[str|None]      = mapped_column(Text, nullable=True)
+    status           : Mapped[ListingStatus] = mapped_column(Enum(ListingStatus),
+                                                              default=ListingStatus.PENDING)
+    rejection_reason : Mapped[str|None]      = mapped_column(Text, nullable=True)
+    review_msg_id    : Mapped[int|None]      = mapped_column(Integer, nullable=True)
+    created_at       : Mapped[datetime]      = mapped_column(DateTime, server_default=func.now())
 
-    owner  : Mapped["User"]              = relationship(back_populates="listings")
+    owner  : Mapped["User"]               = relationship(back_populates="listings")
     images : Mapped[list["ListingImage"]] = relationship(back_populates="listing",
                                                           cascade="all, delete-orphan",
                                                           order_by="ListingImage.order")
@@ -110,11 +111,11 @@ class Consultant(Base):
     phone         : Mapped[str]      = mapped_column(String(20))
     telegram      : Mapped[str|None] = mapped_column(String(64), nullable=True)
     working_hours : Mapped[str|None] = mapped_column(String(64), nullable=True)
-    office        : Mapped[str|None] = mapped_column(String(128), nullable=True)
 
 
 class Setting(Base):
     __tablename__ = "settings"
 
-    key   : Mapped[str] = mapped_column(String(64), primary_key=True)
-    value : Mapped[str] = mapped_column(Text, default="")
+    id    : Mapped[int] = mapped_column(Integer, primary_key=True)
+    key   : Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    value : Mapped[str] = mapped_column(Text, default='')
