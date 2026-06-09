@@ -12,27 +12,31 @@ import logging
 router = Router()
 logger = logging.getLogger("listing")
 
-MAX_IMAGES = 3
+MAX_IMAGES   = 3
+MAX_IMG_SIZE = 5 * 1024 * 1024
+
 TYPE_MAP = {"sale": "فروش", "rent": "رهن/اجاره", "partnership": "مشارکت"}
 PROP_MAP = {"apartment": "آپارتمان", "villa": "ویلا", "commercial": "تجاری",
             "land": "زمین", "office": "دفتر", "other": "سایر"}
 
 
 class ListingFSM(StatesGroup):
-    type        = State()
-    prop_type   = State()
-    province    = State()
-    city        = State()
-    district    = State()
-    area        = State()
-    bedrooms    = State()
-    price       = State()
-    mortgage    = State()
-    rent        = State()
-    facilities  = State()
-    description = State()
-    images      = State()
-    confirm     = State()
+    type          = State()
+    prop_type     = State()
+    province      = State()
+    city          = State()
+    district      = State()
+    address       = State()
+    contact_phone = State()
+    area          = State()
+    bedrooms      = State()
+    price         = State()
+    mortgage      = State()
+    rent          = State()
+    facilities    = State()
+    description   = State()
+    images        = State()
+    confirm       = State()
 
 
 @router.message(F.text == "🏠 ثبت آگهی")
@@ -82,20 +86,52 @@ async def got_city(msg: Message, state: FSMContext):
     await state.update_data(city=msg.text.strip())
     await state.set_state(ListingFSM.district)
     b = InlineKeyboardBuilder()
-    b.button(text="⏭ رد کردن", callback_data="skip:district")
+    b.button(text="⏭ رد کردن", callback_data="skip_district")
     await msg.answer("🏘 <b>محله</b> را وارد کنید:", reply_markup=b.as_markup())
 
 
-@router.callback_query(F.data == "skip:district")
+@router.callback_query(ListingFSM.district, F.data == "skip_district")
 async def skip_district(cb: CallbackQuery, state: FSMContext):
     await state.update_data(district=None)
-    await state.set_state(ListingFSM.area)
-    await cb.message.edit_text("📐 <b>متراژ</b> (متر مربع) را وارد کنید:")
+    await state.set_state(ListingFSM.address)
+    await cb.message.edit_text("🗺 <b>آدرس کامل</b> ملک را وارد کنید:\n<i>(این آدرس فقط برای ادمین نمایش داده می‌شود)</i>")
 
 
 @router.message(ListingFSM.district, F.text)
 async def got_district(msg: Message, state: FSMContext):
     await state.update_data(district=msg.text.strip())
+    await state.set_state(ListingFSM.address)
+    b = InlineKeyboardBuilder()
+    b.button(text="⏭ رد کردن", callback_data="skip_address")
+    await msg.answer("🗺 <b>آدرس کامل</b> ملک را وارد کنید:\n<i>(فقط برای ادمین نمایش داده می‌شود)</i>", reply_markup=b.as_markup())
+
+
+@router.callback_query(ListingFSM.address, F.data == "skip_address")
+async def skip_address(cb: CallbackQuery, state: FSMContext):
+    await state.update_data(address=None)
+    await state.set_state(ListingFSM.contact_phone)
+    await cb.message.edit_text("📞 <b>شماره تماس جهت بازدید</b> را وارد کنید:\n<i>(فقط برای ادمین نمایش داده می‌شود)</i>")
+
+
+@router.message(ListingFSM.address, F.text)
+async def got_address(msg: Message, state: FSMContext):
+    await state.update_data(address=msg.text.strip())
+    await state.set_state(ListingFSM.contact_phone)
+    b = InlineKeyboardBuilder()
+    b.button(text="⏭ رد کردن", callback_data="skip_contact_phone")
+    await msg.answer("📞 <b>شماره تماس جهت بازدید</b> را وارد کنید:\n<i>(فقط برای ادمین نمایش داده می‌شود)</i>", reply_markup=b.as_markup())
+
+
+@router.callback_query(ListingFSM.contact_phone, F.data == "skip_contact_phone")
+async def skip_contact_phone(cb: CallbackQuery, state: FSMContext):
+    await state.update_data(contact_phone=None)
+    await state.set_state(ListingFSM.area)
+    await cb.message.edit_text("📐 <b>متراژ</b> (متر مربع) را وارد کنید:")
+
+
+@router.message(ListingFSM.contact_phone, F.text)
+async def got_contact_phone(msg: Message, state: FSMContext):
+    await state.update_data(contact_phone=msg.text.strip())
     await state.set_state(ListingFSM.area)
     await msg.answer("📐 <b>متراژ</b> (متر مربع) را وارد کنید:")
 
@@ -108,11 +144,11 @@ async def got_area(msg: Message, state: FSMContext):
     await state.update_data(area=int(msg.text))
     await state.set_state(ListingFSM.bedrooms)
     b = InlineKeyboardBuilder()
-    b.button(text="⏭ رد کردن", callback_data="skip:bedrooms")
+    b.button(text="⏭ رد کردن", callback_data="skip_bedrooms")
     await msg.answer("🛏 <b>تعداد اتاق خواب</b>:", reply_markup=b.as_markup())
 
 
-@router.callback_query(F.data == "skip:bedrooms")
+@router.callback_query(ListingFSM.bedrooms, F.data == "skip_bedrooms")
 async def skip_bedrooms(cb: CallbackQuery, state: FSMContext):
     await state.update_data(bedrooms=None)
     await _price_step(cb.message, state)
@@ -135,7 +171,7 @@ async def _price_step(m, state):
     else:
         await state.set_state(ListingFSM.mortgage)
         b = InlineKeyboardBuilder()
-        b.button(text="⏭ رد کردن", callback_data="skip:mortgage")
+        b.button(text="⏭ رد کردن", callback_data="skip_mortgage")
         await m.answer("🔑 <b>مبلغ رهن</b> (تومان):", reply_markup=b.as_markup())
 
 
@@ -149,12 +185,12 @@ async def got_price(msg: Message, state: FSMContext):
     await _facilities_step(msg, state)
 
 
-@router.callback_query(F.data == "skip:mortgage")
+@router.callback_query(ListingFSM.mortgage, F.data == "skip_mortgage")
 async def skip_mortgage(cb: CallbackQuery, state: FSMContext):
     await state.update_data(mortgage=None)
     await state.set_state(ListingFSM.rent)
     b = InlineKeyboardBuilder()
-    b.button(text="⏭ رد کردن", callback_data="skip:rent")
+    b.button(text="⏭ رد کردن", callback_data="skip_rent")
     await cb.message.edit_text("🏠 <b>اجاره ماهانه</b> (تومان):", reply_markup=b.as_markup())
 
 
@@ -167,11 +203,11 @@ async def got_mortgage(msg: Message, state: FSMContext):
     await state.update_data(mortgage=int(val))
     await state.set_state(ListingFSM.rent)
     b = InlineKeyboardBuilder()
-    b.button(text="⏭ رد کردن", callback_data="skip:rent")
+    b.button(text="⏭ رد کردن", callback_data="skip_rent")
     await msg.answer("🏠 <b>اجاره ماهانه</b> (تومان):", reply_markup=b.as_markup())
 
 
-@router.callback_query(F.data == "skip:rent")
+@router.callback_query(ListingFSM.rent, F.data == "skip_rent")
 async def skip_rent(cb: CallbackQuery, state: FSMContext):
     await state.update_data(rent=None)
     await _facilities_step(cb.message, state)
@@ -190,18 +226,18 @@ async def got_rent(msg: Message, state: FSMContext):
 async def _facilities_step(m, state):
     await state.set_state(ListingFSM.facilities)
     b = InlineKeyboardBuilder()
-    b.button(text="⏭ رد کردن", callback_data="skip:facilities")
+    b.button(text="⏭ رد کردن", callback_data="skip_fac")
     await m.answer("🏊 <b>امکانات</b>:", reply_markup=b.as_markup())
 
 
-@router.callback_query(F.data == "skip:facilities")
-async def skip_facilities(cb: CallbackQuery, state: FSMContext):
+@router.callback_query(ListingFSM.facilities, F.data == "skip_fac")
+async def skip_fac(cb: CallbackQuery, state: FSMContext):
     await state.update_data(facilities=None)
     await _desc_step(cb.message, state)
 
 
 @router.message(ListingFSM.facilities, F.text)
-async def got_facilities(msg: Message, state: FSMContext):
+async def got_fac(msg: Message, state: FSMContext):
     await state.update_data(facilities=msg.text.strip())
     await _desc_step(msg, state)
 
@@ -209,69 +245,68 @@ async def got_facilities(msg: Message, state: FSMContext):
 async def _desc_step(m, state):
     await state.set_state(ListingFSM.description)
     b = InlineKeyboardBuilder()
-    b.button(text="⏭ رد کردن", callback_data="skip:desc")
+    b.button(text="⏭ رد کردن", callback_data="skip_desc")
     await m.answer("📝 <b>توضیحات</b>:", reply_markup=b.as_markup())
 
 
-@router.callback_query(F.data == "skip:desc")
+@router.callback_query(ListingFSM.description, F.data == "skip_desc")
 async def skip_desc(cb: CallbackQuery, state: FSMContext):
     await state.update_data(description=None)
-    await _images_step(cb.message, state)
+    await _ask_images(cb.message, state)
 
 
 @router.message(ListingFSM.description, F.text)
 async def got_desc(msg: Message, state: FSMContext):
     await state.update_data(description=msg.text.strip())
-    await _images_step(msg, state)
+    await _ask_images(msg, state)
 
 
-async def _images_step(m, state):
+async def _ask_images(m, state):
     await state.set_state(ListingFSM.images)
     await state.update_data(images=[])
     b = InlineKeyboardBuilder()
-    b.button(text="⏭ بدون تصویر", callback_data="skip:images")
-    await m.answer(
-        "📸 <b>تصاویر ملک</b> (حداکثر " + str(MAX_IMAGES) + " عدد)\nیکی‌یکی ارسال کنید:",
-        reply_markup=b.as_markup()
-    )
+    b.button(text="⏭ بدون تصویر", callback_data="skip_images")
+    await m.answer("📸 <b>تصاویر ملک</b> (حداکثر " + str(MAX_IMAGES) + " عدد):", reply_markup=b.as_markup())
 
 
 @router.message(ListingFSM.images, F.photo)
 async def got_image(msg: Message, state: FSMContext):
-    data = await state.get_data()
+    data   = await state.get_data()
     images = data.get("images", [])
     photo: PhotoSize = msg.photo[-1]
-    if photo.file_size and photo.file_size > 5 * 1024 * 1024:
+    if photo.file_size and photo.file_size > MAX_IMG_SIZE:
         await msg.answer("⚠️ حجم تصویر بیشتر از ۵ مگابایت است.")
         return
     images.append(photo.file_id)
     await state.update_data(images=images)
     if len(images) < MAX_IMAGES:
         b = InlineKeyboardBuilder()
-        b.button(text="✅ همین کافیه", callback_data="skip:images")
+        b.button(text="✅ همین کافیه", callback_data="skip_images")
         await msg.answer("✅ تصویر " + str(len(images)) + " دریافت شد.", reply_markup=b.as_markup())
     else:
-        await _confirm_step(msg, state)
+        await _show_confirm(msg, state)
 
 
-@router.callback_query(F.data == "skip:images")
+@router.callback_query(ListingFSM.images, F.data.in_({"skip_images"}))
 async def finish_images(cb: CallbackQuery, state: FSMContext):
-    await _confirm_step(cb.message, state)
+    await _show_confirm(cb.message, state)
 
 
-async def _confirm_step(m, state):
+async def _show_confirm(m, state):
     data = await state.get_data()
     lines = ["📋 <b>خلاصه آگهی — تأیید نهایی</b>", ""]
     lines.append("📌 " + TYPE_MAP.get(data.get("listing_type", ""), "") + " — " + PROP_MAP.get(data.get("property_type", ""), ""))
     lines.append("📍 " + data.get("province", "") + " — " + data.get("city", ""))
-    if data.get("district"):    lines.append("🏘 " + data["district"])
-    if data.get("area"):        lines.append("📐 " + f"{data['area']:,}" + " متر")
-    if data.get("bedrooms"):    lines.append("🛏 " + str(data["bedrooms"]) + " اتاق")
-    if data.get("price"):       lines.append("💵 " + f"{data['price']:,}" + " تومان")
-    if data.get("mortgage"):    lines.append("🔑 رهن: " + f"{data['mortgage']:,}" + " تومان")
-    if data.get("rent"):        lines.append("🏠 اجاره: " + f"{data['rent']:,}" + " تومان")
-    if data.get("facilities"):  lines.append("🏊 " + data["facilities"])
-    if data.get("description"): lines.append("📝 " + data["description"])
+    if data.get("district"):       lines.append("🏘 " + data["district"])
+    if data.get("address"):        lines.append("🗺 آدرس: " + data["address"])
+    if data.get("contact_phone"):  lines.append("📞 تماس: " + data["contact_phone"])
+    if data.get("area"):           lines.append("📐 " + f'{data["area"]:,}' + " متر")
+    if data.get("bedrooms"):       lines.append("🛏 " + str(data["bedrooms"]) + " اتاق")
+    if data.get("price"):          lines.append("💵 " + f'{data["price"]:,}' + " تومان")
+    if data.get("mortgage"):       lines.append("🔑 رهن: " + f'{data["mortgage"]:,}' + " تومان")
+    if data.get("rent"):           lines.append("🏠 اجاره: " + f'{data["rent"]:,}' + " تومان")
+    if data.get("facilities"):     lines.append("🏊 " + data["facilities"])
+    if data.get("description"):    lines.append("📝 " + data["description"])
     lines.append("📸 " + str(len(data.get("images", []))) + " تصویر")
     await state.set_state(ListingFSM.confirm)
     await m.answer("\n".join(lines), reply_markup=confirm_kb("submit"))
@@ -296,6 +331,8 @@ async def submit_listing(cb: CallbackQuery, state: FSMContext, db_user=None):
             province=data.get("province", ""),
             city=data.get("city", ""),
             district=data.get("district"),
+            address=data.get("address"),
+            contact_phone=data.get("contact_phone"),
             area=data.get("area"),
             bedrooms=data.get("bedrooms"),
             price=data.get("price"),
@@ -310,10 +347,11 @@ async def submit_listing(cb: CallbackQuery, state: FSMContext, db_user=None):
         review_gid = int(review_raw) if review_raw.lstrip("-").isdigit() else None
 
     await cb.message.edit_text(
-        "✅ <b>آگهی ثبت شد!</b>\n"
+        "✅ <b>آگهی با موفقیت ثبت شد!</b>\n"
         "🏷 کد: <code>" + lst.code + "</code>\n"
         "⏳ پس از تأیید منتشر می‌شود."
     )
+    logger.info("New listing %s by %s", lst.code, db_user.telegram_id)
 
     if review_gid:
         text = (
@@ -323,10 +361,14 @@ async def submit_listing(cb: CallbackQuery, state: FSMContext, db_user=None):
             "📍 " + data.get("province", "") + " — " + data.get("city", "") + "\n"
             "👤 " + db_user.full_name + " | 📞 " + db_user.phone
         )
+        if data.get("address"):
+            text += "\n🗺 " + data["address"]
+        if data.get("contact_phone"):
+            text += "\n📞 تماس بازدید: " + data["contact_phone"]
         try:
-            imgs = data.get("images", [])
-            if imgs:
-                sent = await cb.bot.send_photo(review_gid, imgs[0], caption=text,
+            images = data.get("images", [])
+            if images:
+                sent = await cb.bot.send_photo(review_gid, images[0], caption=text,
                                                reply_markup=review_group_kb(lst.id))
             else:
                 sent = await cb.bot.send_message(review_gid, text,
